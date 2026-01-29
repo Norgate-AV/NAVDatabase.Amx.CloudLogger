@@ -235,9 +235,19 @@ define_function NAVWebSocketOnOpenCallback(_NAVWebSocket websocket, _NAVWebSocke
 
 #IF_DEFINED USING_NAV_WEBSOCKET_ON_MESSAGE_CALLBACK
 define_function NAVWebSocketOnMessageCallback(_NAVWebSocket websocket, _NAVWebSocketOnMessageResult result) {
-    // Server might send acknowledgements or commands
+    stack_var _NAVCloudLogResponse response
+
     NAVErrorLog(NAV_LOG_LEVEL_DEBUG,
                 "GetLogPrefix(), 'Received message from server: ', result.Data")
+
+    if (!NAVCloudLogResponseParse(result.Data, response)) {
+        NAVErrorLog(NAV_LOG_LEVEL_ERROR,
+                    "GetLogPrefix(), 'Failed to parse log response from server'")
+        return
+    }
+
+    NAVErrorLog(NAV_LOG_LEVEL_INFO,
+                "GetLogPrefix(), 'Log response received: id=', response.id, ', status=', response.status")
 }
 #END_IF
 
