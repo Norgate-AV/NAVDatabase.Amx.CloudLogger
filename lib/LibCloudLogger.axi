@@ -173,7 +173,7 @@ define_function char QueuePeek(_CloudLogQueue queue, _NAVCloudLog item) {
  * Check if the queue is empty
  *
  * @param {_CloudLogQueue} queue - The queue to check
- * @returns {integer} True (1) if empty, False (0) otherwise
+ * @returns {char} True (1) if empty, False (0) otherwise
  */
 define_function char QueueIsEmpty(_CloudLogQueue queue) {
     return (queue.Count == 0)
@@ -184,7 +184,7 @@ define_function char QueueIsEmpty(_CloudLogQueue queue) {
  * Check if the queue is full
  *
  * @param {_CloudLogQueue} queue - The queue to check
- * @returns {integer} True (1) if full, False (0) otherwise
+ * @returns {char} True (1) if full, False (0) otherwise
  */
 define_function char QueueIsFull(_CloudLogQueue queue) {
     return (queue.Count >= queue.Capacity)

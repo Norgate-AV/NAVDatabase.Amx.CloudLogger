@@ -65,8 +65,6 @@ DEFINE_CONSTANT
 
 constant long TL_WEBSOCKET_CHECK = 1
 
-constant long TL_WEBSOCKET_CHECK_INTERVAL[] = { 5000 }      // 5 seconds
-
 
 (***********************************************************)
 (*              DATA TYPE DEFINITIONS GO BELOW             *)
@@ -174,9 +172,25 @@ define_function ProcessLogQueue() {
 
         payload = NAVCloudLogJsonSerialize(log)
 
+        // Validate payload size
+        if (length_array(payload) >= 2048) {
+            NAVErrorLog(NAV_LOG_LEVEL_WARNING,
+                        "GetLogPrefix(), 'Log payload truncated (', itoa(length_array(payload)), ' bytes). Consider reducing log size.'")
+        }
+
         NAVErrorLog(NAV_LOG_LEVEL_DEBUG,
                         "GetLogPrefix(), 'Sending log: ', payload")
-        NAVWebSocketSend(ws, payload)
+
+        // Check if send succeeds
+        if (!NAVWebSocketSend(ws, payload)) {
+            NAVErrorLog(NAV_LOG_LEVEL_ERROR,
+                        "GetLogPrefix(), 'Failed to send log. Connection may be degraded. Stopping queue processing.'")
+            // Connection likely bad - stop processing
+            context.IsProcessingQueue = false
+            // Trigger reconnect attempt
+            WebSocketConnectionReset()
+            return
+        }
     }
 
     context.IsProcessingQueue = false
@@ -203,12 +217,8 @@ define_function HandleLogCommand(_NAVSnapiMessage message) {
         return
     }
 
-    // Enqueue the log item
-    if (!QueueEnqueue(queue, log)) {
-        NAVErrorLog(NAV_LOG_LEVEL_ERROR,
-                    "GetLogPrefix(), 'Failed to enqueue log - queue is full'")
-        return
-    }
+    // Enqueue the log item (will drop oldest if full)
+    QueueEnqueue(queue, log)
 
     NAVErrorLog(NAV_LOG_LEVEL_DEBUG,
                 "GetLogPrefix(), 'Log enqueued. Queue size: ', itoa(QueueSize(queue))")
@@ -275,15 +285,18 @@ define_function WebSocketConnectionReset() {
         DisconnectFromServer()
     }
 
+    // Always reset retry count for clean state
+    module.Device.SocketConnection.RetryCount = 0
+    module.Device.SocketConnection.Interval[1] = NAVSocketGetConnectionInterval(module.Device.SocketConnection.RetryCount)
+
     if (timeline_active(TL_WEBSOCKET_CHECK)) {
-        // Reset timeline to attempt reconnect in 5 seconds
-        NAVTimelineSetValue(TL_WEBSOCKET_CHECK, 0)
+        NAVTimelineStop(TL_WEBSOCKET_CHECK)
         return
     }
 
     // Start timeline to check connection
     NAVTimelineStart(TL_WEBSOCKET_CHECK,
-                     TL_WEBSOCKET_CHECK_INTERVAL,
+                     module.Device.SocketConnection.Interval,
                      TIMELINE_ABSOLUTE,
                      TIMELINE_REPEAT)
 }
@@ -331,6 +344,32 @@ define_function char[NAV_MAX_BUFFER] GetLogPrefix() {
 }
 
 
+define_function HandleSocketError(tdata data) {
+    module.Device.SocketConnection.RetryCount++
+
+    NAVErrorLog(NAV_LOG_LEVEL_ERROR,
+                "GetLogPrefix(), 'Socket connection error: ', NAVGetSocketError(type_cast(data.number))")
+    NAVErrorLog(NAV_LOG_LEVEL_WARNING,
+                "GetLogPrefix(), 'Socket connection failed (attempt ', itoa(module.Device.SocketConnection.RetryCount), ')'")
+
+    if (module.Device.SocketConnection.RetryCount <= NAV_MAX_SOCKET_CONNECTION_RETRIES) {
+        // Still in base retry phase - timeline already running at base interval
+        NAVErrorLog(NAV_LOG_LEVEL_INFO,
+                    "GetLogPrefix(), 'Next retry in ', itoa(module.Device.SocketConnection.Interval[1]), 'ms'")
+        return
+    }
+
+    // Calculate new exponential backoff interval
+    module.Device.SocketConnection.Interval[1] = NAVSocketGetConnectionInterval(module.Device.SocketConnection.RetryCount)
+
+    NAVErrorLog(NAV_LOG_LEVEL_INFO,
+                "GetLogPrefix(), 'Next retry in ', itoa(module.Device.SocketConnection.Interval[1]), 'ms'")
+
+    // Restart timeline with new interval
+    NAVTimelineReload(TL_WEBSOCKET_CHECK, module.Device.SocketConnection.Interval)
+}
+
+
 (***********************************************************)
 (*                STARTUP CODE GOES BELOW                  *)
 (***********************************************************)
@@ -340,6 +379,7 @@ DEFINE_START {
     // Initialize WebSocket
     NAVWebSocketInit(ws, dvPort)
     create_buffer dvPort, ws.RxBuffer.Data
+    module.Device.SocketConnection.Interval[1] = NAVSocketGetConnectionInterval(module.Device.SocketConnection.RetryCount)
 
     // Initialize log queue
     QueueInit(queue, MAX_LOG_ITEMS)
@@ -357,14 +397,17 @@ DEFINE_EVENT
 data_event[dvPort] {
     online: {
         NAVWebSocketOnConnect(ws)
+
+        module.Device.SocketConnection.RetryCount = 0
+        module.Device.SocketConnection.Interval[1] = NAVSocketGetConnectionInterval(module.Device.SocketConnection.RetryCount)
+        NAVTimelineReload(TL_WEBSOCKET_CHECK, module.Device.SocketConnection.Interval)
     }
     offline: {
         NAVWebSocketOnDisconnect(ws)
     }
     onerror: {
         NAVWebSocketOnError(ws)
-        NAVErrorLog(NAV_LOG_LEVEL_ERROR,
-                    "GetLogPrefix(), 'Socket error: ', NAVGetSocketError(type_cast(data.number))")
+        HandleSocketError(data)
     }
     string: {
         // Process incoming WebSocket data
