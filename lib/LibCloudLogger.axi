@@ -87,7 +87,9 @@ define_function QueueInit(_CloudLogQueue queue, integer initCapacity) {
     }
 
     queue.Capacity = capacity
-    queue.Head = 0
+    // Initialize Head and Tail to capacity (last position)
+    // First enqueue will wrap to index 1
+    queue.Head = capacity
     queue.Tail = capacity
     queue.Count = 0
 
@@ -106,17 +108,17 @@ define_function QueueInit(_CloudLogQueue queue, integer initCapacity) {
  * @returns {char} True (1) if successful, False (0) if queue is full
  */
 define_function char QueueEnqueue(_CloudLogQueue queue, _NAVCloudLog item) {
+    // If queue is full, remove oldest item to make room
     if (queue.Count >= queue.Capacity) {
         NAVErrorLog(NAV_LOG_LEVEL_WARNING,
-                    "'Queue is full (', itoa(queue.Capacity), ' items). Cannot enqueue log.'")
-        return false
+                    "'Queue is full (', itoa(queue.Capacity), ' items). Dropping oldest log to make room.'")
+        // Advance Head to drop oldest item (don't need to retrieve it)
+        queue.Head = (queue.Head % queue.Capacity) + 1
+        queue.Count--
     }
 
-    queue.Tail = (queue.Tail + 1) % queue.Capacity
-    if (queue.Tail == 0) {
-        queue.Tail = queue.Capacity
-    }
-
+    // This cycles: 1 -> 2 -> 3 -> ... -> capacity -> 1
+    queue.Tail = (queue.Tail % queue.Capacity) + 1
     queue.Items[queue.Tail] = item
     queue.Count++
 
@@ -136,11 +138,7 @@ define_function char QueueDequeue(_CloudLogQueue queue, _NAVCloudLog item) {
         return false
     }
 
-    queue.Head = (queue.Head + 1) % queue.Capacity
-    if (queue.Head == 0) {
-        queue.Head = queue.Capacity
-    }
-
+    queue.Head = (queue.Head % queue.Capacity) + 1
     item = queue.Items[queue.Head]
     queue.Count--
 
@@ -165,11 +163,7 @@ define_function char QueuePeek(_CloudLogQueue queue, _NAVCloudLog item) {
         return false
     }
 
-    nextIndex = (queue.Head + 1) % queue.Capacity
-    if (nextIndex == 0) {
-        nextIndex = queue.Capacity
-    }
-
+    nextIndex = (queue.Head % queue.Capacity) + 1
     item = queue.Items[nextIndex]
     return true
 }
@@ -216,7 +210,8 @@ define_function integer QueueSize(_CloudLogQueue queue) {
 define_function QueueClear(_CloudLogQueue queue) {
     stack_var integer x
 
-    queue.Head = 0
+    // Reset to initial state - both at capacity
+    queue.Head = queue.Capacity
     queue.Tail = queue.Capacity
     queue.Count = 0
 
