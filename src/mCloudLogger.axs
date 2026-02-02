@@ -372,15 +372,13 @@ define_function char[NAV_MAX_BUFFER] GetLogPrefix() {
 define_function HandleSocketError(tdata data) {
     module.Device.SocketConnection.RetryCount++
 
-    NAVErrorLog(NAV_LOG_LEVEL_ERROR,
-                "GetLogPrefix(), 'Socket connection error: ', NAVGetSocketError(type_cast(data.number))")
     NAVErrorLog(NAV_LOG_LEVEL_WARNING,
-                "GetLogPrefix(), 'Socket connection failed (attempt ', itoa(module.Device.SocketConnection.RetryCount), ')'")
+                "GetLogPrefix(), 'Connection failed - ', NAVGetSocketError(type_cast(data.number)), ' (retry ', itoa(module.Device.SocketConnection.RetryCount), ' in ', itoa(module.Device.SocketConnection.Interval[1]), 'ms)'")
 
     if (module.Device.SocketConnection.RetryCount <= NAV_MAX_SOCKET_CONNECTION_RETRIES) {
         // Still in base retry phase - timeline already running at base interval
-        NAVErrorLog(NAV_LOG_LEVEL_INFO,
-                    "GetLogPrefix(), 'Next retry in ', itoa(module.Device.SocketConnection.Interval[1]), 'ms'")
+        NAVErrorLog(NAV_LOG_LEVEL_DEBUG,
+                    "GetLogPrefix(), 'Using base retry interval: ', itoa(module.Device.SocketConnection.Interval[1]), 'ms'")
         return
     }
 
@@ -388,7 +386,7 @@ define_function HandleSocketError(tdata data) {
     module.Device.SocketConnection.Interval[1] = NAVSocketGetConnectionInterval(module.Device.SocketConnection.RetryCount)
 
     NAVErrorLog(NAV_LOG_LEVEL_INFO,
-                "GetLogPrefix(), 'Next retry in ', itoa(module.Device.SocketConnection.Interval[1]), 'ms'")
+                "GetLogPrefix(), 'Using exponential backoff interval: ', itoa(module.Device.SocketConnection.Interval[1]), 'ms'")
 
     // Restart timeline with new interval
     NAVTimelineReload(TL_WEBSOCKET_CHECK, module.Device.SocketConnection.Interval)
