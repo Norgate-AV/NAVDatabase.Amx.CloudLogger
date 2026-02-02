@@ -197,6 +197,21 @@ define_function ProcessLogQueue() {
 }
 
 
+define_function char ValidateLogLevel(char level[]) {
+    switch (lower_string(NAVTrimString(level))) {
+        case 'error':
+        case 'warning':
+        case 'info':
+        case 'debug': {
+            return true
+        }
+        default: {
+            return false
+        }
+    }
+}
+
+
 define_function HandleLogCommand(_NAVSnapiMessage message) {
     stack_var _NAVCloudLog log
 
@@ -207,9 +222,15 @@ define_function HandleLogCommand(_NAVSnapiMessage message) {
         return
     }
 
+    if (!ValidateLogLevel(message.Parameter[1])) {
+        NAVErrorLog(NAV_LOG_LEVEL_ERROR,
+                    "GetLogPrefix(), 'Invalid log level in LOG command: ', message.Parameter[1]")
+        return
+    }
+
     if (!NAVCloudLogCreate(context.ClientId,
                            context.RoomName,
-                           message.Parameter[1],
+                           NAVTrimString(message.Parameter[1]),
                            message.Parameter[2],
                            log)) {
         NAVErrorLog(NAV_LOG_LEVEL_ERROR,
@@ -232,6 +253,8 @@ define_function HandleLogCommand(_NAVSnapiMessage message) {
 define_function NAVWebSocketOnOpenCallback(_NAVWebSocket websocket, _NAVWebSocketOnOpenResult result) {
     NAVErrorLog(NAV_LOG_LEVEL_INFO,
                 "GetLogPrefix(), 'WebSocket connected to ', websocket.Url.Host, ':', itoa(websocket.Url.Port)")
+
+    UpdateFeedback()
 
     // Process queued items if any
     if (!QueueIsEmpty(queue)) {
@@ -256,7 +279,7 @@ define_function NAVWebSocketOnMessageCallback(_NAVWebSocket websocket, _NAVWebSo
         return
     }
 
-    NAVErrorLog(NAV_LOG_LEVEL_INFO,
+    NAVErrorLog(NAV_LOG_LEVEL_DEBUG,
                 "GetLogPrefix(), 'Log response received: id=', response.id, ', status=', response.status")
 }
 #END_IF
@@ -266,6 +289,8 @@ define_function NAVWebSocketOnMessageCallback(_NAVWebSocket websocket, _NAVWebSo
 define_function NAVWebSocketOnCloseCallback(_NAVWebSocket websocket, _NAVWebSocketOnCloseResult result) {
     NAVErrorLog(NAV_LOG_LEVEL_WARNING,
                 "GetLogPrefix(), 'WebSocket connection closed: code=', itoa(result.StatusCode), ', reason=', result.Reason")
+
+    UpdateFeedback()
 }
 #END_IF
 
@@ -370,6 +395,11 @@ define_function HandleSocketError(tdata data) {
 }
 
 
+define_function UpdateFeedback() {
+    [vdvObject, DEVICE_COMMUNICATING] = (NAVWebSocketIsOpen(ws))
+}
+
+
 (***********************************************************)
 (*                STARTUP CODE GOES BELOW                  *)
 (***********************************************************)
@@ -383,6 +413,9 @@ DEFINE_START {
 
     // Initialize log queue
     QueueInit(queue, MAX_LOG_ITEMS)
+
+    // Initial feedback update
+    UpdateFeedback()
 
     NAVErrorLog(NAV_LOG_LEVEL_INFO,
                 "GetLogPrefix(), 'Cloud logger module initialized'")

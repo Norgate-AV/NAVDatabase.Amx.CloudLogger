@@ -138,3 +138,6 @@ dist
 
 .history/
 vendor/
+
+# Added by ggshield
+.cache_ggshield
